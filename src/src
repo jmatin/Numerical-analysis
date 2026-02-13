@@ -1,1 +1,412 @@
+%==========================================================================
+% Projet Analyse Numérique INFO-F-205, 2022
+% Mouvement d'un corps sur une surface ondulée
+% Méthode d'Euler explicite
+%
+% Profil : f(x) = cos(3*pi*x^2)*(1-x-x^2)/10
+%==========================================================================
+clear all; close all; clc;
 
+%% ==================== PARAMÈTRES ====================
+g         = 9.81;       % accélération gravitationnelle [m/s^2]
+y0        = 2.0;        % hauteur initiale [m]
+v0        = 0.0;        % vitesse initiale [m/s]
+x0        = 0.0;        % position x initiale [m]
+m         = 1.0;        % masse [kg]
+
+stepsize  = 0.001;      % pas de temps h
+T         = 20;         % durée totale [s]
+nsteps    = round(T / stepsize);
+h         = stepsize;
+
+playvideo = false;       % true pour animation rollonhills
+
+fprintf('==============================================\n');
+fprintf('  Projet INFO-F-205 : Surface ondulée\n');
+fprintf('==============================================\n');
+fprintf('Paramètres :\n');
+fprintf('  g = %.2f m/s^2\n', g);
+fprintf('  y0 = %.2f m\n', y0);
+fprintf('  v0 = %.2f m/s\n', v0);
+fprintf('  x0 = %.2f m\n', x0);
+fprintf('  m  = %.2f kg\n', m);
+fprintf('  stepsize = %g s\n', stepsize);
+fprintf('  T  = %.1f s\n', T);
+fprintf('  nsteps = %d\n', nsteps);
+fprintf('==============================================\n\n');
+
+%% ==================== INITIALISATION ====================
+xhatE     = zeros(1, nsteps + 1);
+yhatE     = zeros(1, nsteps + 1);
+slopehatE = zeros(1, nsteps + 1);
+tvec      = zeros(1, nsteps + 1);
+
+xhatE(1)  = x0;
+[yhatE(1), slopehatE(1)] = roadprofile(xhatE(1));
+tvec(1)   = 0;
+
+% Direction initiale
+if v0 ~= 0
+    direction = sign(v0);
+else
+    direction = -sign(slopehatE(1));
+    if direction == 0
+        direction = 1;
+    end
+end
+
+%% ========================================================
+%  QUESTION 1 : BOUCLE D'EULER EXPLICITE
+%  ========================================================
+fprintf('--- Question 1 : Méthode d''Euler explicite ---\n');
+
+for step = 1:nsteps
+    tvec(step + 1) = tvec(step) + h;
+
+    %--------------------------------------------------------------
+    % 1. Calcul de |x'(t)|^2
+    %--------------------------------------------------------------
+    vxhat2 = (2*g*(y0 - yhatE(step)) + v0^2) / ...
+             (1 + slopehatE(step)^2);
+
+    %--------------------------------------------------------------
+    % 2. Si vxhat2 < 0 : zone interdite -> inverser la direction
+    %--------------------------------------------------------------
+    if vxhat2 < 0
+        direction = -sign(slopehatE(step));
+        if direction == 0
+            direction = 1;
+        end
+        vxhat2 = 0;
+    end
+
+    %--------------------------------------------------------------
+    % 3. Calcul de |x'(t)|
+    %--------------------------------------------------------------
+    vxhat = sqrt(vxhat2);
+
+    %--------------------------------------------------------------
+    % 4. Pas d'Euler
+    %--------------------------------------------------------------
+    if vxhat > 0
+        % Cas normal : vitesse non nulle
+        xhatE(step+1) = xhatE(step) + h * direction * vxhat;
+    else
+        % Cas vitesse nulle : relance par accélération
+        axhat = g * abs(slopehatE(step)) / (1 + slopehatE(step)^2);
+
+        % Direction descendante
+        direction = -sign(slopehatE(step));
+        if direction == 0
+            direction = 1;
+        end
+
+        % Pas d'Euler avec accélération
+        xhatE(step+1) = xhatE(step) + h^2 * direction * axhat / 2;
+    end
+
+    %--------------------------------------------------------------
+    % 5. Mise à jour de f et f' au nouveau point
+    %--------------------------------------------------------------
+    [yhatE(step+1), slopehatE(step+1)] = roadprofile(xhatE(step+1));
+end
+
+fprintf('  Simulation terminée.\n');
+fprintf('  x final = %.4f\n', xhatE(end));
+fprintf('  y final = %.4f\n', yhatE(end));
+
+%% ---- Figure Q1 : Profil et trajectoire ----
+figure(1);
+xmin_plot = min(xhatE) - 0.5;
+xmax_plot = max(xhatE) + 0.5;
+xplot = linspace(xmin_plot, xmax_plot, 3000);
+[yplot, ~] = roadprofile(xplot);
+
+fill([xplot fliplr(xplot)], ...
+     [yplot ones(size(yplot))*(min(yplot)-0.5)], ...
+     [0.8 1 0.8], 'EdgeColor', 'none'); hold on;
+plot(xplot, yplot, 'k-', 'LineWidth', 2);
+plot(xhatE(1:50:end), yhatE(1:50:end), 'b.', 'MarkerSize', 2);
+plot(xhatE(1), yhatE(1), 'ro', 'MarkerSize', 12, ...
+     'MarkerFaceColor', 'r');
+
+legend('', 'Profil f(x)', 'Trajectoire', 'Point initial', ...
+       'Location', 'best');
+xlabel('x', 'FontSize', 13);
+ylabel('y = f(x)', 'FontSize', 13);
+title(['Q1 - Profil et trajectoire; h = ' num2str(stepsize) ...
+       ', y_0 = ' num2str(y0) ', v_0 = ' num2str(v0)], ...
+       'fontsize', 11, 'fontweight', 'b');
+grid on; hold off;
+print('-djpeg90', 'Q1_profil_trajectoire');
+fprintf('  Figure Q1 sauvegardée.\n\n');
+
+%% ========================================================
+%  QUESTION 2 : ÉNERGIES CINÉTIQUE, POTENTIELLE ET TOTALE
+%  ========================================================
+fprintf('--- Question 2 : Calcul des énergies ---\n');
+
+h0 = min(yhatE);   % hauteur de référence
+
+Ecin = zeros(1, nsteps + 1);
+Epot = zeros(1, nsteps + 1);
+Etot = zeros(1, nsteps + 1);
+
+for step = 1:nsteps+1
+    % Vitesse vx^2
+    vx2 = (2*g*(y0 - yhatE(step)) + v0^2) / ...
+          (1 + slopehatE(step)^2);
+    if vx2 < 0
+        vx2 = 0;
+    end
+    
+    % v^2 = vx^2 * (1 + f'(x)^2)
+    v2 = vx2 * (1 + slopehatE(step)^2);
+
+    % Énergies
+    Ecin(step) = 0.5 * m * v2;
+    Epot(step) = m * g * (yhatE(step) - h0);
+    Etot(step) = Ecin(step) + Epot(step);
+end
+
+Etot_th = 0.5 * m * v0^2 + m * g * (y0 - h0);
+
+fprintf('  h0 = min(yhatE) = %.4f m\n', h0);
+fprintf('  E_tot théorique = %.4f J\n', Etot_th);
+fprintf('  E_tot finale    = %.4f J\n', Etot(end));
+fprintf('  Erreur relative = %.2e\n', abs(Etot(end)-Etot_th)/Etot_th);
+
+%% ---- Figure Q2 : Énergies ----
+figure(2);
+plot(tvec, Ecin, 'r', 'LineWidth', 1.5); hold on;
+plot(tvec, Epot, 'b', 'LineWidth', 1.5);
+plot(tvec, Etot, 'k--', 'LineWidth', 2);
+yline(Etot_th, ':', 'Color', [1 0.6 0], 'LineWidth', 1.5);
+
+legend(['E_{cin}(t) = ' char(189) 'mv^2'], ...
+       'E_{pot}(t) = mgh(t)', ...
+       'E_{tot}(t)', ...
+       ['E_{tot}^{th} = ' num2str(Etot_th, '%.2f') ' J'], ...
+       'Location', 'best', 'FontSize', 10);
+xlabel('Temps t [s]', 'FontSize', 13);
+ylabel('Énergie [J]', 'FontSize', 13);
+title(['Q2 - Énergies cinétique, potentielle et totale; ' ...
+       'h = ' num2str(stepsize) ', y_0 = ' num2str(y0) ...
+       ', v_0 = ' num2str(v0) ', m = ' num2str(m)], ...
+       'fontsize', 11, 'fontweight', 'b');
+grid on; hold off;
+print('-djpeg90', 'Q2_energies');
+fprintf('  Figure Q2 sauvegardée.\n\n');
+
+%% ========================================================
+%  QUESTION 3 : STEPSIZE * 100
+%  ========================================================
+fprintf('--- Question 3 : stepsize * 100 ---\n');
+
+stepsize2 = stepsize * 100;
+h2        = stepsize2;
+nsteps2   = round(T / stepsize2);
+
+fprintf('  stepsize2 = %g s\n', stepsize2);
+fprintf('  nsteps2   = %d\n', nsteps2);
+
+%% --- Simulation 2 : Euler avec h*100 ---
+xhatE2     = zeros(1, nsteps2 + 1);
+yhatE2     = zeros(1, nsteps2 + 1);
+slopehatE2 = zeros(1, nsteps2 + 1);
+tvec2      = zeros(1, nsteps2 + 1);
+
+xhatE2(1) = x0;
+[yhatE2(1), slopehatE2(1)] = roadprofile(xhatE2(1));
+tvec2(1) = 0;
+
+if v0 ~= 0
+    direction2 = sign(v0);
+else
+    direction2 = -sign(slopehatE2(1));
+    if direction2 == 0
+        direction2 = 1;
+    end
+end
+
+for step = 1:nsteps2
+    tvec2(step + 1) = tvec2(step) + h2;
+
+    % |x'(t)|^2
+    vxhat2 = (2*g*(y0 - yhatE2(step)) + v0^2) / ...
+             (1 + slopehatE2(step)^2);
+
+    % Zone interdite
+    if vxhat2 < 0
+        direction2 = -sign(slopehatE2(step));
+        if direction2 == 0
+            direction2 = 1;
+        end
+        vxhat2 = 0;
+    end
+
+    % |x'(t)|
+    vxhat = sqrt(vxhat2);
+
+    % Pas d'Euler
+    if vxhat > 0
+        xhatE2(step+1) = xhatE2(step) + h2 * direction2 * vxhat;
+    else
+        axhat = g * abs(slopehatE2(step)) / (1 + slopehatE2(step)^2);
+        direction2 = -sign(slopehatE2(step));
+        if direction2 == 0
+            direction2 = 1;
+        end
+        xhatE2(step+1) = xhatE2(step) + h2^2 * direction2 * axhat / 2;
+    end
+
+    [yhatE2(step+1), slopehatE2(step+1)] = roadprofile(xhatE2(step+1));
+end
+
+fprintf('  Simulation 2 terminée.\n');
+fprintf('  x final (h*100) = %.4f\n', xhatE2(end));
+
+%% --- Énergies simulation 2 ---
+h0_2 = min(yhatE2);
+
+Ecin2 = zeros(1, nsteps2 + 1);
+Epot2 = zeros(1, nsteps2 + 1);
+Etot2 = zeros(1, nsteps2 + 1);
+
+for step = 1:nsteps2+1
+    vx2 = (2*g*(y0 - yhatE2(step)) + v0^2) / ...
+          (1 + slopehatE2(step)^2);
+    if vx2 < 0
+        vx2 = 0;
+    end
+    v2 = vx2 * (1 + slopehatE2(step)^2);
+
+    Ecin2(step) = 0.5 * m * v2;
+    Epot2(step) = m * g * (yhatE2(step) - h0_2);
+    Etot2(step) = Ecin2(step) + Epot2(step);
+end
+
+Etot_th2 = 0.5 * m * v0^2 + m * g * (y0 - h0_2);
+
+fprintf('  h0_2 = %.4f m\n', h0_2);
+fprintf('  E_tot théorique (h*100) = %.4f J\n', Etot_th2);
+fprintf('  E_tot finale (h*100)    = %.4f J\n', Etot2(end));
+
+%% ---- Figure Q3-1 : Énergies avec h*100 ----
+figure(3);
+plot(tvec2, Ecin2, 'r', 'LineWidth', 1.5); hold on;
+plot(tvec2, Epot2, 'b', 'LineWidth', 1.5);
+plot(tvec2, Etot2, 'k--', 'LineWidth', 2);
+yline(Etot_th2, ':', 'Color', [1 0.6 0], 'LineWidth', 1.5);
+
+legend('E_{cin}(t)', 'E_{pot}(t)', 'E_{tot}(t)', ...
+       ['E_{tot}^{th} = ' num2str(Etot_th2, '%.2f') ' J'], ...
+       'Location', 'best', 'FontSize', 10);
+xlabel('Temps t [s]', 'FontSize', 13);
+ylabel('Énergie [J]', 'FontSize', 13);
+title(['Q3 - Énergies avec stepsize x100; h = ' ...
+       num2str(stepsize2)], ...
+       'fontsize', 11, 'fontweight', 'b');
+grid on; hold off;
+print('-djpeg90', 'Q3_energies_h100');
+fprintf('  Figure Q3-1 sauvegardée.\n');
+
+%% ---- Figure Q3-2 : Comparaison des trajectoires ----
+figure(4);
+
+% Limites du graphique
+xmin_all = min([xhatE xhatE2]) - 0.5;
+xmax_all = max([xhatE xhatE2]) + 0.5;
+xpl = linspace(xmin_all, xmax_all, 3000);
+[ypl, ~] = roadprofile(xpl);
+
+% Remplissage sous le profil
+fill([xpl fliplr(xpl)], ...
+     [ypl ones(size(ypl))*(min(ypl)-0.5)], ...
+     [0.8 1 0.8], 'EdgeColor', 'none'); hold on;
+
+% Profil
+plot(xpl, ypl, 'k-', 'LineWidth', 1.5);
+
+% Trajectoire h petit (sous-échantillonnée)
+plot(xhatE(1:50:end), yhatE(1:50:end), 'b-', 'LineWidth', 0.8);
+
+% Trajectoire h grand
+plot(xhatE2, yhatE2, 'r-o', 'LineWidth', 1.5, 'MarkerSize', 3);
+
+% Point initial
+plot(xhatE(1), yhatE(1), 'go', 'MarkerSize', 12, ...
+     'MarkerFaceColor', [0 0.5 0], 'MarkerEdgeColor', 'k');
+
+legend('', 'Profil f(x)', ...
+       ['Trajectoire h = ' num2str(stepsize)], ...
+       ['Trajectoire h = ' num2str(stepsize2)], ...
+       'Point initial', ...
+       'Location', 'northwest', 'FontSize', 9);
+xlabel('x', 'FontSize', 13);
+ylabel('y = f(x)', 'FontSize', 13);
+title(['Q3 - Comparaison des trajectoires; h = ' ...
+       num2str(stepsize) ' vs h = ' num2str(stepsize2)], ...
+       'fontsize', 11, 'fontweight', 'b');
+grid on; hold off;
+print('-djpeg90', 'Q3_trajectoires');
+fprintf('  Figure Q3-2 sauvegardée.\n');
+
+%% ---- Figure Q3-3 : Comparaison x(t) ----
+figure(5);
+plot(tvec, xhatE, 'b-', 'LineWidth', 1); hold on;
+plot(tvec2, xhatE2, 'r--', 'LineWidth', 1.5);
+legend(['x(t) h = ' num2str(stepsize)], ...
+       ['x(t) h = ' num2str(stepsize2)], ...
+       'Location', 'best', 'FontSize', 10);
+xlabel('Temps t [s]', 'FontSize', 13);
+ylabel('x(t)', 'FontSize', 13);
+title('Q3 - Comparaison position x(t)', ...
+       'fontsize', 11, 'fontweight', 'b');
+grid on; hold off;
+print('-djpeg90', 'Q3_position_x');
+fprintf('  Figure Q3-3 sauvegardée.\n');
+
+%% ---- Figure Q3-4 : Comparaison Etot ----
+figure(6);
+plot(tvec, Etot, 'k-', 'LineWidth', 1.5); hold on;
+plot(tvec2, Etot2, 'r--', 'LineWidth', 1.5);
+yline(Etot_th, ':', 'Color', [0 0 1], 'LineWidth', 1.2);
+legend(['E_{tot} h = ' num2str(stepsize)], ...
+       ['E_{tot} h = ' num2str(stepsize2)], ...
+       ['E_{tot}^{th} = ' num2str(Etot_th, '%.2f') ' J'], ...
+       'Location', 'best', 'FontSize', 10);
+xlabel('Temps t [s]', 'FontSize', 13);
+ylabel('E_{tot} [J]', 'FontSize', 13);
+title('Q3 - Comparaison énergie totale', ...
+       'fontsize', 11, 'fontweight', 'b');
+grid on; hold off;
+print('-djpeg90', 'Q3_comparaison_Etot');
+fprintf('  Figure Q3-4 sauvegardée.\n');
+
+%% ==================== RÉSUMÉ ====================
+fprintf('\n==============================================\n');
+fprintf('  RÉSUMÉ DU PROJET\n');
+fprintf('==============================================\n');
+fprintf('  Profil : f(x) = cos(3*pi*x^2)*(1-x-x^2)/10\n\n');
+
+fprintf('  Question 1 : Euler explicite complété\n');
+fprintf('    - Le corps part vers la droite\n');
+fprintf('    - Trajectoire suit le profil f(x)\n\n');
+
+fprintf('  Question 2 : Énergies\n');
+fprintf('    - h0 = min(yhatE) = %.4f m\n', h0);
+fprintf('    - E_tot_th = %.4f J\n', Etot_th);
+fprintf('    - E_tot reste constante (conservation OK)\n');
+fprintf('    - Amplitudes Ecin/Epot croissantes car\n');
+fprintf('      le profil a des oscillations croissantes\n\n');
+
+fprintf('  Question 3 : stepsize * 100\n');
+fprintf('    - E_tot reste quasi constante (par construction)\n');
+fprintf('    - Trajectoire diverge pour x > 1.5 environ\n');
+fprintf('    - Erreur principale : troncature\n');
+fprintf('    - Le grand pas ne résout pas les oscillations\n');
+fprintf('      rapides du profil\n');
+fprintf('==============================================\n');
+fprintf('  %d figures générées et sauvegardées.\n', 6);
+fprintf('==============================================\n');

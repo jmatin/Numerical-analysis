@@ -31,3 +31,13 @@ The motion is governed by an ODE derived from energy conservation (kinetic + pot
 │ ├── roadprofile.m # Road profile f(x) and f'(x)
 │ └── projet2022INFOF205.m # Main simulation script
 ```
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **MATLAB** or **GNU Octave**
+
+### Run
+```matlab
+>> cd src
+>> projet2022INFOF205
